@@ -1,0 +1,102 @@
+---
+title: "131-hw-2"
+author: "Tonia Wu"
+date: "4/8/2022"
+output: pdf_document
+---
+
+```{r setup, echo=FALSE}
+library(tidyverse)
+library(tidymodels)
+library(ggplot2)
+library(yardstick)
+library(dplyr)
+abalone <- read.csv('C:\\Users\\me\\Downloads\\homework-2\\homework-2\\data\\abalone.csv')
+```
+
+# Q1
+
+Looks like we have a right-skewed distribution with a mean of 11.43 years.
+```{r}
+abalone['age'] = abalone$rings + 1.5
+abalone
+summary(abalone$age)
+```
+
+# Q2
+The data are split with 80% in the training set and 20% in the testing set.
+```{r}
+# set seed
+set.seed(286)
+
+# split
+aba_split <- initial_split(abalone, prop = 0.80, strata = age)
+aba_train <- training(aba_split)
+aba_test <- testing(aba_split)
+```
+
+# Q3
+Since rings is directly used to calculate age and thus is not an independent variable, there is no use using it to predict age.
+
+```{r}
+aba_recipe <- recipe(age~type + longest_shell + diameter + height + whole_weight + shucked_weight + viscera_weight + shell_weight, data = aba_train) %>%
+  step_dummy(all_nominal_predictors()) %>%
+  step_center(all_numeric_predictors()) %>%
+  step_scale(all_numeric_predictors()) %>%
+  step_interact(~ type:shucked_weight) %>%
+  step_interact(~ longest_shell:diameter) %>%
+  step_interact(~shucked_weight:skull_weight)
+```
+
+# Q4
+```{r}
+lm_model <- linear_reg() %>%
+  set_engine('lm')
+```
+
+# Q5
+```{r}
+# set up a workflow
+lm_wflow <- workflow() %>% 
+  add_model(lm_model) %>% 
+  add_recipe(aba_recipe)
+
+# fit linear model to training set
+lm_fit <- fit(lm_wflow, aba_train)
+
+# results
+lm_fit %>% 
+  extract_fit_parsnip() %>% 
+  tidy()
+
+```
+
+# Q6
+The predicted age is  23.68:
+```{r}
+hypo_f_aba <- data.frame(type = 'F', longest_shell = 0.5, diameter = 0.1, height = 0.3, whole_weight = 4, shucked_weight = 1, viscera_weight = 2, shell_weight = 1)
+
+# results
+predict(lm_fit, new_data = hypo_f_aba)
+```
+
+# Q7
+As the r-squared value is only about 56%, our model only explains 56% of the variation in abalone age.
+
+```{r}
+# get training rmse
+aba_train_rmse <- predict(lm_fit, new_data = aba_train %>% select(-age))
+aba_train_rmse
+
+# attach a column with observed ages
+aba_train_rmse <- bind_cols(aba_train_rmse, aba_train %>% select(age))
+aba_train_rmse %>% 
+  head()
+
+# get rmse
+rmse(aba_train_rmse, truth = age, estimate = .pred)
+
+# create metric set
+aba_metrics <- metric_set(rmse, rsq, mae)
+aba_metrics(aba_train_rmse, truth = age, estimate = .pred)
+```
